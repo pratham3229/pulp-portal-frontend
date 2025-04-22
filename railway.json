@@ -6,7 +6,7 @@
     "outputDirectory": "build"
   },
   "deploy": {
-    "startCommand": "npx serve -s build",
+    "startCommand": "npx serve -s build -l tcp://0.0.0.0:$PORT",
     "healthcheckPath": "/",
     "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
