@@ -1,10 +1,12 @@
 import axios from "axios";
 import { getAuthHeader } from "./authService";
 
-const API_URL = "https://pulp-portal-backend-production.up.railway.app/api";
+const API_URL =
+  process.env.REACT_APP_API_URL ||
+  "https://pulp-portal-backend-production.up.railway.app";
 
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: `${API_URL}/api`,
   headers: {
     "Content-Type": "application/json",
   },

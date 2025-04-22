@@ -1,7 +1,8 @@
 import axios from "axios";
 
 const API_URL =
-  "https://pulp-portal-backend-production.up.railway.app/api/auth";
+  process.env.REACT_APP_API_URL ||
+  "https://pulp-portal-backend-production.up.railway.app";
 
 export interface AuthResponse {
   user: {
@@ -13,7 +14,7 @@ export interface AuthResponse {
 }
 
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: `${API_URL}/api/auth`,
   headers: {
     "Content-Type": "application/json",
   },
