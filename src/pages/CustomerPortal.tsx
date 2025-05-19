@@ -11,25 +11,47 @@ import {
   TabsContent,
 } from "../components/ui/tabs";
 import { submitDocument } from "../services/api";
+import { GeoJSONPreview } from "../components/GeoJSONPreview";
 
 interface FormData {
   // Basic Details
-  tradeName: string | null;
+  pulpType: string | null;
   commodities: string | null;
-  speciesNames: string | null;
+  commonName: string | null;
+  scientificName: string | null;
   quantity: string | null;
 
-  // Location Info
-  supplierCountry: string | null;
-  productionCountry: string | null;
-  woodOriginCountry: string | null;
-  geolocationPolygon: string | null;
-  harvestDates: string | null;
+  // Supplier Details
+  suppliers: Array<{
+    name: string | null;
+    email: string | null;
+    country: string | null;
+    region: string | null;
+  }>;
 
-  // Contact Details
-  supplierDetails: string | null;
-  producerDetails: string | null;
-  geolocationOwnerDetails: string | null;
+  // Producer Details
+  producers: Array<{
+    name: string | null;
+    email: string | null;
+    country: string | null;
+    region: string | null;
+  }>;
+
+  // Wood Origin Details
+  woodOrigins: {
+    country: string;
+    harvestDate: string;
+    description: string;
+    area: number;
+    geojsonFile: File | null;
+    geojsonData: any | null;
+  }[];
+
+  // Geolocation Details
+  geolocations: Array<{
+    polygon: string | null;
+    description: string | null;
+  }>;
 }
 
 interface FileData {
@@ -58,18 +80,43 @@ interface FileData {
 }
 
 const initialFormData: FormData = {
-  tradeName: null,
+  pulpType: null,
   commodities: null,
-  speciesNames: null,
+  commonName: null,
+  scientificName: null,
   quantity: null,
-  supplierCountry: null,
-  productionCountry: null,
-  woodOriginCountry: null,
-  geolocationPolygon: null,
-  harvestDates: null,
-  supplierDetails: null,
-  producerDetails: null,
-  geolocationOwnerDetails: null,
+  suppliers: [
+    {
+      name: null,
+      email: null,
+      country: null,
+      region: null,
+    },
+  ],
+  producers: [
+    {
+      name: null,
+      email: null,
+      country: null,
+      region: null,
+    },
+  ],
+  woodOrigins: [
+    {
+      country: "",
+      harvestDate: "",
+      description: "",
+      area: 0,
+      geojsonFile: null,
+      geojsonData: null,
+    },
+  ],
+  geolocations: [
+    {
+      polygon: null,
+      description: null,
+    },
+  ],
 };
 
 const initialFileData: FileData = {
@@ -95,7 +142,7 @@ const initialFileData: FileData = {
 const sections = [
   "Basic Details",
   "Location Info",
-  "Contact Details",
+  "Geolocation",
   "Transaction Documents",
   "Legal Documents",
   "Compliance",
@@ -111,12 +158,38 @@ export default function CustomerPortal() {
   const [submissions, setSubmissions] = useState<
     Array<{ formData: FormData; fileData: FileData }>
   >([]);
+  const [showGeoJSONPreview, setShowGeoJSONPreview] = useState(false);
+  const [currentGeoJSONIndex, setCurrentGeoJSONIndex] = useState<number | null>(
+    null
+  );
 
   const handleInputChange = (
-    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+
+    // Handle nested fields (suppliers, producers, woodOrigins, and geolocations)
+    if (
+      name.startsWith("suppliers.") ||
+      name.startsWith("producers.") ||
+      name.startsWith("woodOrigins.") ||
+      name.startsWith("geolocations.")
+    ) {
+      const [parent, index, field] = name.split(".");
+      setFormData((prev) => {
+        const parentArray = [...(prev[parent as keyof FormData] as Array<any>)];
+        parentArray[parseInt(index)] = {
+          ...parentArray[parseInt(index)],
+          [field]: value,
+        };
+        return {
+          ...prev,
+          [parent]: parentArray,
+        };
+      });
+    } else {
+      setFormData((prev) => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -203,6 +276,152 @@ export default function CustomerPortal() {
     </div>
   );
 
+  const addSupplier = () => {
+    setFormData((prev) => ({
+      ...prev,
+      suppliers: [
+        ...prev.suppliers,
+        { name: null, email: null, country: null, region: null },
+      ],
+    }));
+  };
+
+  const addProducer = () => {
+    setFormData((prev) => ({
+      ...prev,
+      producers: [
+        ...prev.producers,
+        { name: null, email: null, country: null, region: null },
+      ],
+    }));
+  };
+
+  const removeSupplier = (index: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      suppliers: prev.suppliers.filter((_, i) => i !== index),
+    }));
+  };
+
+  const removeProducer = (index: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      producers: prev.producers.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleWoodOriginChange = (
+    index: number,
+    field: keyof FormData["woodOrigins"][0],
+    value: string | number
+  ) => {
+    setFormData((prev) => {
+      const woodOrigins = [...prev.woodOrigins];
+      woodOrigins[index] = {
+        ...woodOrigins[index],
+        [field]: value,
+      };
+      return {
+        ...prev,
+        woodOrigins,
+      };
+    });
+  };
+
+  const handleAddWoodOrigin = () => {
+    setFormData((prev) => ({
+      ...prev,
+      woodOrigins: [
+        ...prev.woodOrigins,
+        {
+          country: "",
+          harvestDate: "",
+          description: "",
+          area: 0,
+          geojsonFile: null,
+          geojsonData: null,
+        },
+      ],
+    }));
+  };
+
+  const formatDateForInput = (date: string): string => {
+    if (!date) return "";
+    const d = new Date(date);
+    return d.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:mm
+  };
+
+  const addGeolocation = () => {
+    setFormData((prev) => ({
+      ...prev,
+      geolocations: [
+        ...prev.geolocations,
+        { polygon: null, description: null },
+      ],
+    }));
+  };
+
+  const removeGeolocation = (index: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      geolocations: prev.geolocations.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleGeoJsonUpload = async (index: number, file: File) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const geojsonData = JSON.parse(e.target?.result as string);
+
+          // Validate GeoJSON structure
+          if (!geojsonData.type || !geojsonData.features) {
+            throw new Error("Invalid GeoJSON format");
+          }
+
+          // Show preview
+          setCurrentGeoJSONIndex(index);
+          setShowGeoJSONPreview(true);
+
+          // Update form data with file and parsed GeoJSON
+          setFormData((prev) => {
+            const woodOrigins = [...prev.woodOrigins];
+            woodOrigins[index] = {
+              ...woodOrigins[index],
+              geojsonFile: file,
+              geojsonData: geojsonData,
+            };
+            return { ...prev, woodOrigins };
+          });
+        } catch (error) {
+          console.error("Error parsing GeoJSON:", error);
+          setError("Invalid GeoJSON file format");
+        }
+      };
+      reader.readAsText(file);
+    } catch (error) {
+      console.error("Error reading file:", error);
+      setError("Error reading GeoJSON file");
+    }
+  };
+
+  const handleGeoJSONValidate = (selectedPlots: any[]) => {
+    if (currentGeoJSONIndex === null) return;
+
+    setFormData((prev) => {
+      const woodOrigins = [...prev.woodOrigins];
+      woodOrigins[currentGeoJSONIndex] = {
+        ...woodOrigins[currentGeoJSONIndex],
+        geojsonData: {
+          ...woodOrigins[currentGeoJSONIndex].geojsonData,
+          features: selectedPlots,
+        },
+      };
+      return { ...prev, woodOrigins };
+    });
+  };
+
   return (
     <div className="max-w-7xl mx-auto p-6">
       <Card className="shadow-xl rounded-2xl">
@@ -240,12 +459,10 @@ export default function CustomerPortal() {
               <TabsContent value="Basic Details" className="space-y-4">
                 <div className="grid gap-6">
                   <div>
-                    <Label className="text-base font-medium">
-                      Trade Name & Type of Pulp
-                    </Label>
+                    <Label className="text-base font-medium">Pulp Type</Label>
                     <Input
-                      name="tradeName"
-                      value={formData.tradeName || ""}
+                      name="pulpType"
+                      value={formData.pulpType || ""}
                       onChange={handleInputChange}
                       className="mt-2"
                     />
@@ -262,12 +479,21 @@ export default function CustomerPortal() {
                     />
                   </div>
                   <div>
+                    <Label className="text-base font-medium">Common Name</Label>
+                    <Input
+                      name="commonName"
+                      value={formData.commonName || ""}
+                      onChange={handleInputChange}
+                      className="mt-2"
+                    />
+                  </div>
+                  <div>
                     <Label className="text-base font-medium">
-                      Common Name & Full Scientific Name of Species
+                      Scientific Name
                     </Label>
                     <Input
-                      name="speciesNames"
-                      value={formData.speciesNames || ""}
+                      name="scientificName"
+                      value={formData.scientificName || ""}
                       onChange={handleInputChange}
                       className="mt-2"
                     />
@@ -289,106 +515,366 @@ export default function CustomerPortal() {
 
               <TabsContent value="Location Info" className="space-y-4">
                 <div className="grid gap-6">
-                  <div>
-                    <Label className="text-base font-medium">
-                      Country & Region of Pulp Supplier
-                    </Label>
-                    <Input
-                      name="supplierCountry"
-                      value={formData.supplierCountry || ""}
-                      onChange={handleInputChange}
-                      className="mt-2"
-                    />
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-lg font-medium">
+                        Pulp Supplier Details
+                      </h3>
+                      <Button
+                        onClick={addSupplier}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <svg
+                          className="w-5 h-5 mr-2"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 4v16m8-8H4"
+                          />
+                        </svg>
+                        Add Supplier
+                      </Button>
+                    </div>
+                    {formData.suppliers.map((supplier, index) => (
+                      <div
+                        key={index}
+                        className="border p-4 rounded-lg space-y-4"
+                      >
+                        <div className="flex justify-between items-center">
+                          <h4 className="font-medium">Supplier {index + 1}</h4>
+                          {index > 0 && (
+                            <Button
+                              onClick={() => removeSupplier(index)}
+                              variant="destructive"
+                              size="sm"
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid gap-4">
+                          <div>
+                            <Label className="text-base font-medium">
+                              Supplier Name
+                            </Label>
+                            <Input
+                              name={`suppliers.${index}.name`}
+                              value={supplier.name || ""}
+                              onChange={handleInputChange}
+                              className="mt-2"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-base font-medium">
+                              Supplier Email
+                            </Label>
+                            <Input
+                              type="email"
+                              name={`suppliers.${index}.email`}
+                              value={supplier.email || ""}
+                              onChange={handleInputChange}
+                              className="mt-2"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-base font-medium">
+                              Supplier Country
+                            </Label>
+                            <select
+                              name={`suppliers.${index}.country`}
+                              value={supplier.country || ""}
+                              onChange={handleInputChange}
+                              className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2"
+                            >
+                              <option value="">Select Country</option>
+                              <option value="USA">United States</option>
+                              <option value="Canada">Canada</option>
+                              <option value="Brazil">Brazil</option>
+                              <option value="Sweden">Sweden</option>
+                              <option value="Finland">Finland</option>
+                            </select>
+                          </div>
+                          <div>
+                            <Label className="text-base font-medium">
+                              Supplier Region
+                            </Label>
+                            <Input
+                              name={`suppliers.${index}.region`}
+                              value={supplier.region || ""}
+                              onChange={handleInputChange}
+                              className="mt-2"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div>
-                    <Label className="text-base font-medium">
-                      Country & Region of Pulp Production
-                    </Label>
-                    <Input
-                      name="productionCountry"
-                      value={formData.productionCountry || ""}
-                      onChange={handleInputChange}
-                      className="mt-2"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-base font-medium">
-                      Country & Region of Wood Origin
-                    </Label>
-                    <Input
-                      name="woodOriginCountry"
-                      value={formData.woodOriginCountry || ""}
-                      onChange={handleInputChange}
-                      className="mt-2"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-base font-medium">
-                      Geolocation Polygon of Harvest Areas
-                    </Label>
-                    <Textarea
-                      name="geolocationPolygon"
-                      value={formData.geolocationPolygon || ""}
-                      onChange={handleInputChange}
-                      placeholder="Enter coordinates or description of harvest areas"
-                      className="mt-2"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-base font-medium">
-                      Date/Time Range of Harvesting
-                    </Label>
-                    <Input
-                      name="harvestDates"
-                      value={formData.harvestDates || ""}
-                      onChange={handleInputChange}
-                      placeholder="Enter harvest date range"
-                      className="mt-2"
-                    />
+
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-lg font-medium">
+                        Pulp Producer Details
+                      </h3>
+                      <Button
+                        onClick={addProducer}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <svg
+                          className="w-5 h-5 mr-2"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 4v16m8-8H4"
+                          />
+                        </svg>
+                        Add Producer
+                      </Button>
+                    </div>
+                    {formData.producers.map((producer, index) => (
+                      <div
+                        key={index}
+                        className="border p-4 rounded-lg space-y-4"
+                      >
+                        <div className="flex justify-between items-center">
+                          <h4 className="font-medium">Producer {index + 1}</h4>
+                          {index > 0 && (
+                            <Button
+                              onClick={() => removeProducer(index)}
+                              variant="destructive"
+                              size="sm"
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid gap-4">
+                          <div>
+                            <Label className="text-base font-medium">
+                              Producer Name
+                            </Label>
+                            <Input
+                              name={`producers.${index}.name`}
+                              value={producer.name || ""}
+                              onChange={handleInputChange}
+                              className="mt-2"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-base font-medium">
+                              Producer Email
+                            </Label>
+                            <Input
+                              type="email"
+                              name={`producers.${index}.email`}
+                              value={producer.email || ""}
+                              onChange={handleInputChange}
+                              className="mt-2"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-base font-medium">
+                              Producer Country
+                            </Label>
+                            <select
+                              name={`producers.${index}.country`}
+                              value={producer.country || ""}
+                              onChange={handleInputChange}
+                              className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2"
+                            >
+                              <option value="">Select Country</option>
+                              <option value="USA">United States</option>
+                              <option value="Canada">Canada</option>
+                              <option value="Brazil">Brazil</option>
+                              <option value="Sweden">Sweden</option>
+                              <option value="Finland">Finland</option>
+                            </select>
+                          </div>
+                          <div>
+                            <Label className="text-base font-medium">
+                              Producer Region
+                            </Label>
+                            <Input
+                              name={`producers.${index}.region`}
+                              value={producer.region || ""}
+                              onChange={handleInputChange}
+                              className="mt-2"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </TabsContent>
 
-              <TabsContent value="Contact Details" className="space-y-4">
+              <TabsContent value="Geolocation" className="space-y-4">
                 <div className="grid gap-6">
-                  <div>
-                    <Label className="text-base font-medium">
-                      Pulp Supplier Details
-                    </Label>
-                    <Textarea
-                      name="supplierDetails"
-                      value={formData.supplierDetails || ""}
-                      onChange={handleInputChange}
-                      placeholder="Name, email, and postal address"
-                      className="mt-2"
-                      rows={4}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-base font-medium">
-                      Pulp Producer Details
-                    </Label>
-                    <Textarea
-                      name="producerDetails"
-                      value={formData.producerDetails || ""}
-                      onChange={handleInputChange}
-                      placeholder="Name, email, and postal address"
-                      className="mt-2"
-                      rows={4}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-base font-medium">
-                      Geolocation Owner Details
-                    </Label>
-                    <Textarea
-                      name="geolocationOwnerDetails"
-                      value={formData.geolocationOwnerDetails || ""}
-                      onChange={handleInputChange}
-                      placeholder="Name, email, and postal address"
-                      className="mt-2"
-                      rows={4}
-                    />
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-lg font-medium">
+                        Wood Origin Details
+                      </h3>
+                      <Button
+                        onClick={handleAddWoodOrigin}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        Add Wood Origin
+                      </Button>
+                    </div>
+                    {formData.woodOrigins.map((origin, index) => (
+                      <div
+                        key={index}
+                        className="border p-4 rounded-lg space-y-4"
+                      >
+                        <div className="flex justify-between items-center">
+                          <h4 className="font-medium">
+                            Wood Origin {index + 1}
+                          </h4>
+                          {index > 0 && (
+                            <Button
+                              onClick={() => {
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  woodOrigins: prev.woodOrigins.filter(
+                                    (_, i) => i !== index
+                                  ),
+                                }));
+                              }}
+                              variant="destructive"
+                              size="sm"
+                            >
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid gap-4">
+                          <div>
+                            <Label className="text-base font-medium">
+                              Country
+                            </Label>
+                            <select
+                              value={origin.country}
+                              onChange={(e) =>
+                                handleWoodOriginChange(
+                                  index,
+                                  "country",
+                                  e.target.value
+                                )
+                              }
+                              className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2"
+                            >
+                              <option value="">Select Country</option>
+                              <option value="USA">United States</option>
+                              <option value="Canada">Canada</option>
+                              <option value="Brazil">Brazil</option>
+                              <option value="Sweden">Sweden</option>
+                              <option value="Finland">Finland</option>
+                            </select>
+                          </div>
+                          <div>
+                            <Label className="text-base font-medium">
+                              Harvest Date & Time
+                            </Label>
+                            <Input
+                              type="datetime-local"
+                              value={formatDateForInput(origin.harvestDate)}
+                              onChange={(e) =>
+                                handleWoodOriginChange(
+                                  index,
+                                  "harvestDate",
+                                  e.target.value
+                                )
+                              }
+                              className="mt-2"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor={`area-${index}`}>
+                              Area (hectares)
+                            </Label>
+                            <Input
+                              id={`area-${index}`}
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={origin.area}
+                              onChange={(e) =>
+                                handleWoodOriginChange(
+                                  index,
+                                  "area",
+                                  parseFloat(e.target.value)
+                                )
+                              }
+                              required
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor={`description-${index}`}>
+                              Description
+                            </Label>
+                            <Input
+                              id={`description-${index}`}
+                              value={origin.description}
+                              onChange={(e) =>
+                                handleWoodOriginChange(
+                                  index,
+                                  "description",
+                                  e.target.value
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-base font-medium">
+                              GeoJSON File
+                            </Label>
+                            <Input
+                              type="file"
+                              accept=".geojson,application/json"
+                              data-index={index}
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  handleGeoJsonUpload(index, file);
+                                }
+                              }}
+                              className="mt-2"
+                            />
+                            {origin.geojsonFile && (
+                              <p className="text-sm text-green-600">
+                                File selected: {origin.geojsonFile.name}
+                              </p>
+                            )}
+                            {origin.geojsonData && (
+                              <div className="mt-2 text-sm text-gray-600">
+                                <p>
+                                  Plots: {origin.geojsonData.features.length}
+                                </p>
+                                <p>
+                                  Total Area:{" "}
+                                  {origin.geojsonData.features.reduce(
+                                    (sum: number, feature: any) =>
+                                      sum + (feature.properties.hectare || 0),
+                                    0
+                                  )}{" "}
+                                  hectares
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </TabsContent>
@@ -508,16 +994,20 @@ export default function CustomerPortal() {
                     </h3>
                     <div className="grid gap-3">
                       <p>
-                        <span className="font-medium">Trade Name:</span>{" "}
-                        {formData.tradeName || ""}
+                        <span className="font-medium">Pulp Type:</span>{" "}
+                        {formData.pulpType || ""}
                       </p>
                       <p>
                         <span className="font-medium">Commodities:</span>{" "}
                         {formData.commodities || ""}
                       </p>
                       <p>
-                        <span className="font-medium">Species Names:</span>{" "}
-                        {formData.speciesNames || ""}
+                        <span className="font-medium">Common Name:</span>{" "}
+                        {formData.commonName || ""}
+                      </p>
+                      <p>
+                        <span className="font-medium">Scientific Name:</span>{" "}
+                        {formData.scientificName || ""}
                       </p>
                       <p>
                         <span className="font-medium">Quantity:</span>{" "}
@@ -530,47 +1020,150 @@ export default function CustomerPortal() {
                     <h3 className="text-lg font-medium mb-4">
                       Location Details
                     </h3>
-                    <div className="grid gap-3">
-                      <p>
-                        <span className="font-medium">Supplier Country:</span>{" "}
-                        {formData.supplierCountry || ""}
-                      </p>
-                      <p>
-                        <span className="font-medium">Production Country:</span>{" "}
-                        {formData.productionCountry || ""}
-                      </p>
-                      <p>
-                        <span className="font-medium">Wood Origin:</span>{" "}
-                        {formData.woodOriginCountry || ""}
-                      </p>
-                      <p>
-                        <span className="font-medium">Geolocation:</span>{" "}
-                        {formData.geolocationPolygon || ""}
-                      </p>
-                      <p>
-                        <span className="font-medium">Harvest Dates:</span>{" "}
-                        {formData.harvestDates || ""}
-                      </p>
+                    <div className="grid gap-6">
+                      <div>
+                        <h4 className="font-medium mb-3">Supplier Details</h4>
+                        {formData.suppliers.map((supplier, index) => (
+                          <div
+                            key={index}
+                            className="mb-4 p-3 bg-white rounded"
+                          >
+                            <p className="font-medium">Supplier {index + 1}</p>
+                            <p>Name: {supplier.name || ""}</p>
+                            <p>Email: {supplier.email || ""}</p>
+                            <p>Country: {supplier.country || ""}</p>
+                            <p>Region: {supplier.region || ""}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div>
+                        <h4 className="font-medium mb-3">Producer Details</h4>
+                        {formData.producers.map((producer, index) => (
+                          <div
+                            key={index}
+                            className="mb-4 p-3 bg-white rounded"
+                          >
+                            <p className="font-medium">Producer {index + 1}</p>
+                            <p>Name: {producer.name || ""}</p>
+                            <p>Email: {producer.email || ""}</p>
+                            <p>Country: {producer.country || ""}</p>
+                            <p>Region: {producer.region || ""}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
                   <div className="bg-gray-50 p-6 rounded-lg">
                     <h3 className="text-lg font-medium mb-4">
-                      Contact Information
+                      Wood Origin Details
                     </h3>
-                    <div className="grid gap-3">
-                      <p>
-                        <span className="font-medium">Supplier Details:</span>{" "}
-                        {formData.supplierDetails || ""}
-                      </p>
-                      <p>
-                        <span className="font-medium">Producer Details:</span>{" "}
-                        {formData.producerDetails || ""}
-                      </p>
-                      <p>
-                        <span className="font-medium">Geolocation Owner:</span>{" "}
-                        {formData.geolocationOwnerDetails || ""}
-                      </p>
+                    <div className="grid gap-6">
+                      {formData.woodOrigins.map((origin, index) => (
+                        <div
+                          key={index}
+                          className="bg-white p-4 rounded-lg shadow-sm"
+                        >
+                          <h4 className="font-medium mb-3">
+                            Wood Origin {index + 1}
+                          </h4>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <p>
+                                <span className="font-medium">Country:</span>{" "}
+                                {origin.country || "Not specified"}
+                              </p>
+                              <p>
+                                <span className="font-medium">
+                                  Harvest Date:
+                                </span>{" "}
+                                {origin.harvestDate || "Not specified"}
+                              </p>
+                              <p>
+                                <span className="font-medium">Area:</span>{" "}
+                                {origin.area || 0} hectares
+                              </p>
+                              {origin.description && (
+                                <p>
+                                  <span className="font-medium">
+                                    Description:
+                                  </span>{" "}
+                                  {origin.description}
+                                </p>
+                              )}
+                            </div>
+                            <div>
+                              {origin.geojsonFile && (
+                                <div className="space-y-2">
+                                  <p className="font-medium">
+                                    GeoJSON Information:
+                                  </p>
+                                  <p className="text-sm text-green-600">
+                                    File: {origin.geojsonFile.name}
+                                  </p>
+                                  {origin.geojsonData && (
+                                    <div className="mt-2">
+                                      <p className="text-sm">
+                                        <span className="font-medium">
+                                          Number of Plots:
+                                        </span>{" "}
+                                        {origin.geojsonData.features.length}
+                                      </p>
+                                      <p className="text-sm">
+                                        <span className="font-medium">
+                                          Total Area:
+                                        </span>{" "}
+                                        {origin.geojsonData.features.reduce(
+                                          (sum: number, feature: any) =>
+                                            sum +
+                                            (feature.properties.hectare || 0),
+                                          0
+                                        )}{" "}
+                                        hectares
+                                      </p>
+                                      <div className="mt-2">
+                                        <p className="font-medium text-sm">
+                                          Plot Details:
+                                        </p>
+                                        <div className="max-h-40 overflow-y-auto">
+                                          {origin.geojsonData.features.map(
+                                            (
+                                              feature: any,
+                                              plotIndex: number
+                                            ) => (
+                                              <div
+                                                key={plotIndex}
+                                                className="text-sm border-b py-1"
+                                              >
+                                                <p>
+                                                  Plot ID:{" "}
+                                                  {feature.properties.plot_ID}
+                                                </p>
+                                                <p>
+                                                  Farmer:{" "}
+                                                  {
+                                                    feature.properties
+                                                      .farmer_name
+                                                  }
+                                                </p>
+                                                <p>
+                                                  Area:{" "}
+                                                  {feature.properties.hectare}{" "}
+                                                  hectares
+                                                </p>
+                                              </div>
+                                            )
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
 
@@ -644,6 +1237,36 @@ export default function CustomerPortal() {
           </div>
         </CardContent>
       </Card>
+
+      {showGeoJSONPreview && currentGeoJSONIndex !== null && (
+        <GeoJSONPreview
+          geojsonData={formData.woodOrigins[currentGeoJSONIndex].geojsonData}
+          onValidate={handleGeoJSONValidate}
+          onClose={() => {
+            setShowGeoJSONPreview(false);
+            setCurrentGeoJSONIndex(null);
+          }}
+          onReset={() => {
+            // Reset the GeoJSON data for the current index
+            setFormData((prev) => {
+              const woodOrigins = [...prev.woodOrigins];
+              woodOrigins[currentGeoJSONIndex] = {
+                ...woodOrigins[currentGeoJSONIndex],
+                geojsonFile: null,
+                geojsonData: null,
+              };
+              return { ...prev, woodOrigins };
+            });
+            // Reset the file input
+            const fileInput = document.querySelector(
+              `input[type="file"][data-index="${currentGeoJSONIndex}"]`
+            ) as HTMLInputElement;
+            if (fileInput) {
+              fileInput.value = "";
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

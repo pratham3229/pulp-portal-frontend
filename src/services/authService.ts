@@ -2,7 +2,7 @@ import axios from "axios";
 
 const API_URL =
   process.env.REACT_APP_API_URL ||
-  "https://pulp-portal-backend-production.up.railway.app";
+  "https://pulp-portal-backend-gjbaf4azd4e8edha.southindia-01.azurewebsites.net";
 
 export interface AuthResponse {
   user: {
